@@ -16,11 +16,24 @@ CREATE TABLE vinyls (
   badge_class TEXT,
   description TEXT,
   tracklist JSONB,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  CONSTRAINT valid_cover_url CHECK (cover_url IS NULL OR cover_url LIKE 'https://%')
 );
 
 -- 2. Habilitar RLS en Vinilos
 ALTER TABLE vinyls ENABLE ROW LEVEL SECURITY;
+
+-- Función de seguridad (SECURITY DEFINER) para evitar bucles de recursión en RLS
+CREATE OR REPLACE FUNCTION is_admin()
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'
+  );
+$$;
 
 -- Políticas de Vinilos
 -- SOLO los usuarios autenticados pueden ver los vinilos
@@ -31,16 +44,16 @@ CREATE POLICY "Vinyls are viewable by authenticated users."
 -- SOLO los administradores pueden insertar, actualizar o borrar vinilos
 CREATE POLICY "Only admins can insert vinyls."
   ON vinyls FOR INSERT
-  WITH CHECK ( EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin') );
+  WITH CHECK ( is_admin() );
 
 CREATE POLICY "Only admins can update vinyls."
   ON vinyls FOR UPDATE
-  USING ( EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin') )
-  WITH CHECK ( EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin') );
+  USING ( is_admin() )
+  WITH CHECK ( is_admin() );
 
 CREATE POLICY "Only admins can delete vinyls."
   ON vinyls FOR DELETE
-  USING ( EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin') );
+  USING ( is_admin() );
 
 -- 3. Insertar los 20 Vinilos Reales con descripciones y tracklists
 INSERT INTO vinyls (title, artist, price, year, type, availability, cover_url, description, tracklist) VALUES
@@ -69,23 +82,20 @@ INSERT INTO vinyls (title, artist, price, year, type, availability, cover_url, d
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 
 -- Los usuarios solo pueden ver su propio perfil
+DROP POLICY IF EXISTS "Users can view own profile" ON profiles;
 CREATE POLICY "Users can view own profile"
   ON profiles
   FOR SELECT
   USING (auth.uid() = id);
 
--- Los usuarios solo pueden actualizar su propio perfil y NO pueden modificar su rol
-CREATE POLICY "Users can update own profile"
-  ON profiles
-  FOR UPDATE
-  USING (auth.uid() = id)
-  WITH CHECK (
-    auth.uid() = id
-    AND role = (
-      SELECT role
-      FROM profiles
-      WHERE id = auth.uid()
-    )
-  );
+-- (Removido: La política de "Users can update own profile" causaba recursión y escalada de privilegios.
+-- Como no hay página de editar perfil en tu tienda, es más seguro simplemente no permitir updates a los usuarios normales.)
+DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
 
 -- (Removido: La política de "Admins can view all profiles" causaba un bucle infinito de recursión en RLS. No se necesita porque no hay vista de lista de usuarios.)
+
+-- Los administradores pueden ver todos los perfiles (usando la función segura)
+DROP POLICY IF EXISTS "Admins can view all profiles" ON profiles;
+CREATE POLICY "Admins can view all profiles"
+  ON profiles FOR SELECT
+  USING ( is_admin() );
