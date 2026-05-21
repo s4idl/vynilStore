@@ -35,7 +35,8 @@ CREATE POLICY "Only admins can insert vinyls."
 
 CREATE POLICY "Only admins can update vinyls."
   ON vinyls FOR UPDATE
-  USING ( EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin') );
+  USING ( EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin') )
+  WITH CHECK ( EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin') );
 
 CREATE POLICY "Only admins can delete vinyls."
   ON vinyls FOR DELETE
@@ -63,3 +64,39 @@ INSERT INTO vinyls (title, artist, price, year, type, availability, cover_url, d
 ('What Could Possibly Go Wrong', 'Dominic Fike', 720, 2020, 'LP', 'disponible', 'https://m.media-amazon.com/images/I/81CPCw32tOL._UF1000,1000_QL80_.jpg', 'El álbum debut de Dominic Fike que mezcla indie pop, hip hop alternativo y guitarras melódicas.', '{"Side A": ["Come Here", "Double Negative", "Cancel Me", "10x", "Vampire", "Superstar Sh*t", "Politics & Violence"], "Side B": ["Joe Blazey", "Wurli", "Florida", "Queen of England", "Chicken Tenders", "Whats For Dinner?", "Good Game"]}'),
 ('Circles', 'Mac Miller', 600, 2020, 'LP', 'disponible', 'https://m.media-amazon.com/images/I/61ON2YOQPUL._UF1000,1000_QL80_DpWeblab_.jpg', 'El sexto y último álbum de estudio de Mac Miller, concebido como un álbum hermano de su anterior proyecto Swimming.', '{"Side A": ["Circles", "Complicated", "Blue World", "Good News", "I Can See", "Everybody", "Woods"], "Side B": ["Hand Me Downs", "That''s On Me", "Hands", "Surf", "Once A Day"]}'),
 ('Discovery', 'Daft Punk', 780, 2001, 'LP', 'disponible', 'https://m.media-amazon.com/images/I/71bsHTr6idL._UF1000,1000_QL80_.jpg', 'El segundo álbum del dúo, un tributo nostálgico al pop, disco y R&B de su juventud.', '{"Side A": ["One More Time", "Aerodynamic", "Digital Love", "Harder, Better, Faster, Stronger"], "Side B": ["Crescendolls", "Nightvision", "Superheroes", "High Life", "Something About Us", "Voyager", "Veridis Quo", "Short Circuit", "Face to Face", "Too Long"]}');
+
+-- 4. Habilitar RLS estricto en Profiles (Hardening de Auditoría)
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+
+-- Los usuarios solo pueden ver su propio perfil
+CREATE POLICY "Users can view own profile"
+  ON profiles
+  FOR SELECT
+  USING (auth.uid() = id);
+
+-- Los usuarios solo pueden actualizar su propio perfil y NO pueden modificar su rol
+CREATE POLICY "Users can update own profile"
+  ON profiles
+  FOR UPDATE
+  USING (auth.uid() = id)
+  WITH CHECK (
+    auth.uid() = id
+    AND role = (
+      SELECT role
+      FROM profiles
+      WHERE id = auth.uid()
+    )
+  );
+
+-- Los administradores pueden ver todos los perfiles (para panel de admin si es necesario)
+CREATE POLICY "Admins can view all profiles"
+  ON profiles
+  FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM profiles
+      WHERE id = auth.uid()
+      AND role = 'admin'
+    )
+  );
