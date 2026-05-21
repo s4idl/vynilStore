@@ -88,15 +88,4 @@ CREATE POLICY "Users can update own profile"
     )
   );
 
--- Los administradores pueden ver todos los perfiles (para panel de admin si es necesario)
-CREATE POLICY "Admins can view all profiles"
-  ON profiles
-  FOR SELECT
-  USING (
-    EXISTS (
-      SELECT 1
-      FROM profiles
-      WHERE id = auth.uid()
-      AND role = 'admin'
-    )
-  );
+-- (Removido: La política de "Admins can view all profiles" causaba un bucle infinito de recursión en RLS. No se necesita porque no hay vista de lista de usuarios.)
