@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { createClient } from '@supabase/supabase-js'
 import { supabase } from '../supabase'
 import { Plus, Edit2, Trash2, X } from 'lucide-react'
 
@@ -174,24 +175,25 @@ export default function Admin() {
     setUserLoading(true)
     setUserMsg(null)
     try {
-      // Guardar sesion actual del admin
-      const { data: { session: adminSession } } = await supabase.auth.getSession()
+      // Usar un cliente temporal para evitar el session swap del admin (Gotrue race condition)
+      const url = import.meta.env.VITE_SUPABASE_URL
+      const key = import.meta.env.VITE_SUPABASE_ANON_KEY
+      
+      const tempClient = createClient(url, key, {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          detectSessionInUrl: false
+        }
+      })
 
-      // Crear el nuevo usuario
-      const { data, error } = await supabase.auth.signUp({
+      // Crear el nuevo usuario usando el cliente aislado
+      const { data, error } = await tempClient.auth.signUp({
         email: userForm.email,
         password: userForm.password,
         options: { data: { full_name: userForm.name } }
       })
       if (error) throw error
-
-      // Restaurar sesion del admin inmediatamente
-      if (adminSession) {
-        await supabase.auth.setSession({
-          access_token: adminSession.access_token,
-          refresh_token: adminSession.refresh_token
-        })
-      }
 
       setUserMsg({ type: 'ok', text: `¡Usuario ${userForm.email} creado exitosamente!` })
       setUserForm({ email: '', password: '', name: '' })
@@ -250,8 +252,26 @@ export default function Admin() {
     setShowEdit(true)
   }
 
+  // SSRF Protection / URL Validation
+  const validateUrl = (urlStr) => {
+    if (!urlStr) return true // Optional field
+    try {
+      const parsed = new URL(urlStr)
+      if (parsed.protocol !== 'https:') return false
+      const blocked = ['localhost', '127.0.0.1', '169.254']
+      if (blocked.some(b => parsed.hostname.startsWith(b))) return false
+      return true
+    } catch {
+      return false
+    }
+  }
+
   const handleCreate = async (e) => {
     e.preventDefault()
+    if (!validateUrl(createForm.cover_url)) {
+      alert('Error de Seguridad: La URL de la portada debe ser HTTPS válida y no puede apuntar a direcciones locales.')
+      return
+    }
     try {
       const { data, error } = await supabase.from('vinyls').insert([createForm]).select()
       if (error) throw error
@@ -263,6 +283,10 @@ export default function Admin() {
 
   const handleEdit = async (e) => {
     e.preventDefault()
+    if (!validateUrl(editForm.cover_url)) {
+      alert('Error de Seguridad: La URL de la portada debe ser HTTPS válida y no puede apuntar a direcciones locales.')
+      return
+    }
     try {
       const { error } = await supabase
         .from('vinyls')
