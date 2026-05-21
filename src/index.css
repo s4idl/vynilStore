@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-cream text-dark font-sans min-h-screen;
+  }
+}
+
+@layer utilities {
+  .border-gold-light {
+    border-color: rgba(201,168,76,0.25);
+  }
+}
